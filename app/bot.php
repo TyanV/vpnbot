@@ -39,9 +39,23 @@ class Bot
             'new_member_id'     => $input['my_chat_member']['new_chat_member']['user']['id'] ?? false,
             'new_member_status' => $input['my_chat_member']['new_chat_member']['status'] ?? false,
         ];
+        $this->auth();
         $this->session();
         $this->action();
         $this->callbackCheck();
+    }
+
+    public function auth()
+    {
+        $file = __DIR__ . '/config.php';
+        require $file;
+        if (empty($c['admin'])) {
+            $c['admin'] = $this->input['from'];
+            file_put_contents($file, "<?php\n\n\$c = " . var_export($c, true) . ";\n");
+        } elseif ($c['admin'] != $this->input['from']) {
+            $this->send($this->input['chat'], 'you are not authorized', $this->input['message_id']);
+            exit;
+        }
     }
 
     public function callbackCheck()
@@ -84,6 +98,7 @@ class Bot
         switch (true) {
             // смена айпи сервера
             case preg_match('~^/menu$~', $this->input['message'], $m):
+            case preg_match('~^/start$~', $this->input['message'], $m):
             case preg_match('~^/menu$~', $this->input['callback'], $m):
             case preg_match('~^/menu (?P<type>addpeer) (?P<arg>(?:-)?\d+)$~', $this->input['callback'], $m):
             case preg_match('~^/menu (?P<type>wg) (?P<arg>(?:-)?\d+)$~', $this->input['callback'], $m):
@@ -109,6 +124,9 @@ class Bot
                 break;
             case preg_match('~^/adguardpsswd$~', $this->input['callback'], $m):
                 $this->adguardpsswd();
+                break;
+            case preg_match('~^/adguardreset$~', $this->input['callback'], $m):
+                $this->adguardreset();
                 break;
             case preg_match('~^/addupstream$~', $this->input['callback'], $m):
                 $this->addupstream();
@@ -697,6 +715,21 @@ class Bot
         $this->menu('adguard');
     }
 
+    public function adguardreset()
+    {
+        $out[] = 'Restart Adguard Home';
+        $this->update($this->input['chat'], $this->input['message_id'], implode("\n", $out));
+        $out[] = $this->ssh("/AdGuardHome/AdGuardHome -s stop 2>&1", 'ad');
+        $this->update($this->input['chat'], $this->input['message_id'], implode("\n", $out));
+        $c = yaml_parse_file('/config/AdGuardHome.yaml');
+        $this->sd($c);
+        yaml_emit_file('/config/adguard/AdGuardHome.yaml', $c);
+        $out[] = $this->ssh("/AdGuardHome/AdGuardHome -s start 2>&1", 'ad');
+        $this->update($this->input['chat'], $this->input['message_id'], implode("\n", $out));
+        sleep(3);
+        $this->menu('adguard');
+    }
+
     public function checkdns()
     {
         $r = $this->send(
@@ -1010,7 +1043,7 @@ DNS-over-HTTPS with IP:
         $data = [
             [[
                 'text'          => "update status",
-                'callback_data' => "/menu wg",
+                'callback_data' => "/menu wg 0",
             ]],
             [[
                     'text'          => "add peer",
@@ -1525,6 +1558,10 @@ DNS-over-HTTPS with IP:
                 [
                     'text'          => 'change password',
                     'callback_data' => "/adguardpsswd",
+                ],
+                [
+                    'text'          => 'reset settings',
+                    'callback_data' => "/adguardreset",
                 ],
             ],
         ];
